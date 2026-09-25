@@ -1,0 +1,33 @@
+# =====================================================================
+# Multi-Target Tracking Training Workshop - Python requirements
+# =====================================================================
+# All-inclusive: everything needed to (a) render the course with Quarto and
+# (b) run the interactive Streamlit exercise apps, on a machine that does NOT
+# already have the author's "radar" environment.
+#
+# Install into a fresh virtual environment (see README.md, "Quick start"):
+#     python3 -m venv .venv
+#     source .venv/bin/activate            # Windows: .venv\Scripts\activate
+#     pip install --upgrade pip
+#     pip install -r requirements.txt
+#
+# Version floors are conservative and known-good; newer releases are fine.
+# (This file does NOT install Quarto or LaTeX - those are separate, see README.)
+
+# ---- Scientific stack: the course figures and exercise apps ----
+numpy>=1.24            # arrays / linear algebra (all figures + appcommon compute)
+scipy>=1.10            # optimal assignment (linear_sum_assignment) - M8, M13 OSPA
+matplotlib>=3.7        # every figure and Streamlit plot
+streamlit>=1.30        # the interactive companion exercise apps (exercises/ex*.py)
+
+# ---- Quarto's Python (Jupyter) engine: executes the .qmd code cells at render ----
+# Quarto renders each module by running its embedded Python cells through Jupyter,
+# so these are required for `quarto render` even though you never call them directly.
+jupyter>=1.0           # metapackage: pulls jupyter_client, etc.
+jupyter-cache>=0.6     # required because _quarto.yml sets `execute: cache: true`
+nbclient>=0.7          # Quarto uses this to execute the notebook cells
+nbformat>=5.7          # notebook (de)serialization used by the Quarto Jupyter engine
+ipykernel>=6.20        # the "python3" kernel Quarto launches (jupyter: python3)
+
+# NOTE: the PowerPoint post-processor (scripts/pptx_fixup.py) uses only the Python
+# standard library (zipfile/re) - no python-pptx or other package is needed for it.
