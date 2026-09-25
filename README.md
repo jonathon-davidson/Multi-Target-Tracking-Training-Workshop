@@ -43,6 +43,9 @@ python3 -m venv .venv
 source .venv/bin/activate            # Windows (PowerShell): .venv\Scripts\Activate.ps1
 pip install --upgrade pip
 pip install -r requirements.txt
+
+or
+pip install --no-index --find-links=./course_packages numpy scipy matplotlib streamlit
 ```
 
 That installs the scientific stack (numpy, scipy, matplotlib, streamlit) **and** the
