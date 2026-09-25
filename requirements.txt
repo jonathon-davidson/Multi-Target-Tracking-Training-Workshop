@@ -23,11 +23,11 @@ streamlit>=1.30        # the interactive companion exercise apps (exercises/ex*.
 # ---- Quarto's Python (Jupyter) engine: executes the .qmd code cells at render ----
 # Quarto renders each module by running its embedded Python cells through Jupyter,
 # so these are required for `quarto render` even though you never call them directly.
-jupyter>=1.0           # metapackage: pulls jupyter_client, etc.
-jupyter-cache>=0.6     # required because _quarto.yml sets `execute: cache: true`
-nbclient>=0.7          # Quarto uses this to execute the notebook cells
-nbformat>=5.7          # notebook (de)serialization used by the Quarto Jupyter engine
-ipykernel>=6.20        # the "python3" kernel Quarto launches (jupyter: python3)
+#jupyter>=1.0           # metapackage: pulls jupyter_client, etc.
+#jupyter-cache>=0.6     # required because _quarto.yml sets `execute: cache: true`
+#nbclient>=0.7          # Quarto uses this to execute the notebook cells
+#nbformat>=5.7          # notebook (de)serialization used by the Quarto Jupyter engine
+#ipykernel>=6.20        # the "python3" kernel Quarto launches (jupyter: python3)
 
 # NOTE: the PowerPoint post-processor (scripts/pptx_fixup.py) uses only the Python
 # standard library (zipfile/re) - no python-pptx or other package is needed for it.
