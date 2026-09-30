@@ -1,0 +1,298 @@
+"""Capstone companion: Fusion Cell Tactical Vignette (Option B, half-day).
+
+Run from the project root, ONE workstation per team:
+    streamlit run exercises/ex_capstone_vignette.py
+
+A notional, unclassified surface-action-group vignette in four phases. In each phase
+the cell sees a degraded track picture, DIAGNOSES what is wrong together, and the TECH
+LEAD toggles the agreed remedy on the workstation to watch the picture recover. The
+SPEAKER uses the final Commander's Brief tab to present the picture and recommendation.
+
+Every computation reuses the verified per-module code in appcommon.py, so the picture
+behaves exactly as in the module apps the students already saw.
+"""
+import numpy as np
+import streamlit as st
+import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+
+import appcommon as ac
+
+C = ac.COURSE_COLORS
+SC = ac.CAPSTONE_SCENARIO
+PHASES = ac.CAPSTONE_PHASES
+
+ac.page_header("Capstone: Fusion Cell Tactical Vignette",
+               "diagnose the degraded picture, apply the remedy, brief the commander",
+               "Capstone")
+
+# ---- shared decision log across phases (per-team workstation session) ----
+if "log" not in st.session_state:
+    st.session_state.log = {}      # phase id -> {"diagnosis":..., "action":..., "note":...}
+
+
+def record(pid, **kw):
+    st.session_state.log.setdefault(pid, {}).update(kw)
+
+
+# ---- sidebar: scenario, roles, navigation ----
+with st.sidebar:
+    st.header("Fusion Cell")
+    st.caption(SC["setting"])
+    st.markdown("**Roles**")
+    st.markdown(f"- **Tech lead** – {SC['roles']['tech_lead']}")
+    st.markdown(f"- **Speaker** – {SC['roles']['speaker']}")
+    st.markdown(f"- **Cell** – {SC['roles']['cell']}")
+    st.divider()
+    nav = st.radio("Go to",
+                   [f"Phase {p['id']}: {p['title']}" for p in PHASES]
+                   + ["Commander's Brief"])
+
+
+def situation(p):
+    st.subheader(f"Phase {p['id']} – {p['title']}")
+    st.warning(f"**What the cell sees:** {p['degradation']}")
+    st.info(f"**Cue to watch for:** {p['cue']}")
+
+
+def diagnosis_block(pid, options, correct_idx):
+    st.markdown("**Cell diagnosis** (agree together, then the tech lead records it):")
+    choice = st.radio("What is actually wrong?", options, key=f"dx{pid}",
+                      index=None)
+    note = st.text_input("Cell note (optional) – for the brief", key=f"note{pid}")
+    if choice is not None:
+        record(pid, diagnosis=choice, note=note,
+               diagnosis_ok=(options.index(choice) == correct_idx))
+    return choice
+
+
+def ellipse(ax, mean, cov, color, label=None, nsig=2.0, ls="-", lw=2.0, k=1.0):
+    vals, vecs = np.linalg.eigh((k ** 2) * cov)
+    ang = np.degrees(np.arctan2(vecs[1, 0], vecs[0, 0]))
+    ax.add_patch(Ellipse(mean, 2 * nsig * np.sqrt(vals[0]), 2 * nsig * np.sqrt(vals[1]),
+                 angle=ang, fill=False, edgecolor=color, lw=lw, ls=ls, label=label))
+
+
+# =====================================================================
+# PHASE 1 - build the picture in clutter
+# =====================================================================
+def phase1():
+    p = PHASES[0]; situation(p)
+    d = ac.capstone_phase1()
+    diagnosis_block(1,
+        ["Sensor hardware fault", "Too much clutter for the hard nearest-neighbor pick",
+         "The targets are maneuvering", "A coordinate-frame error"], 1)
+    soft = st.toggle("Tech lead: switch to soft (PDA) association", key="p1toggle")
+    if soft:
+        record(1, action="Switched to PDA (soft) association")
+    fig, (a0, a1) = plt.subplots(1, 2, figsize=(7.6, 3.3))
+    for ax in (a0, a1):
+        ax.grid(True, alpha=0.3)
+    loss = [d["gnn_loss"] * 100, d["pda_loss"] * 100]
+    rmse = [d["gnn_rmse"], d["pda_rmse"]]
+    cols = [C["accent2"], C["accent"]]
+    hi = 1 if soft else 0
+    a0.bar(["NN / GNN\n(hard)", "PDA\n(soft)"], loss, color=[cols[0], cols[1]])
+    a0.bar([hi], [loss[hi]], color=C["navy"])
+    a0.set_ylabel("track-loss rate (%)"); a0.set_title("Clutter survivability")
+    a1.bar(["NN / GNN", "PDA"], rmse, color=[cols[0], cols[1]])
+    a1.set_ylabel("position RMSE (m)"); a1.set_title("Accuracy")
+    st.pyplot(fig)
+    if soft:
+        st.success(f"Soft association cuts track loss from {loss[0]:.0f}% to "
+                   f"{loss[1]:.0f}% and RMSE from {rmse[0]:.0f} m to {rmse[1]:.0f} m. "
+                   "The picture is stable enough to work with.")
+    else:
+        st.caption("Discuss: is the picture trustworthy yet? Then the tech lead toggles "
+                   "the remedy the cell agrees on.")
+
+
+# =====================================================================
+# PHASE 2 - ghost + bias-split (two remedies)
+# =====================================================================
+def phase2():
+    p = PHASES[1]; situation(p)
+    g = ac.capstone_phase2_ghost()
+    b = ac.capstone_phase2_bias()
+    diagnosis_block(2,
+        ["Two genuine new contacts appeared",
+         "A passive-bearing ghost AND a bias-split from an unregistered radar",
+         "The Kalman filter diverged", "Clutter returns formed tracks"], 1)
+    c1, c2 = st.columns(2)
+    with c1:
+        tri = st.toggle("Tech lead: add third bearing (triangulate)", key="p2tri")
+    with c2:
+        reg = st.toggle("Tech lead: register the biased radar", key="p2reg")
+    if tri or reg:
+        acts = []
+        if tri: acts.append("triangulated to reject the ghost")
+        if reg: acts.append(f"registered the radar (est {b['bias_est']:.2f}°)")
+        record(2, action="; ".join(acts))
+
+    fig, (a0, a1) = plt.subplots(1, 2, figsize=(7.8, 3.4))
+    # left: ghost geometry
+    s1, s2, s3, T = g["s1"], g["s2"], g["s3"], g["targets"]
+    def ray(ax, s, tgt, col, lw=1.2, a=1.0):
+        d = ac.bearing(s, tgt); dv = np.array([np.sin(d), np.cos(d)])
+        end = s + 1.2 * np.hypot(*(tgt - s)) * dv
+        ax.plot([s[0]/1e3, end[0]/1e3], [s[1]/1e3, end[1]/1e3], "-", color=col, lw=lw, alpha=a)
+    for t in T:
+        ray(a0, s1, t, C["mid"]); ray(a0, s2, t, C["accent2"])
+    if tri:
+        for t in T: ray(a0, s3, t, C["accent"], lw=1.4)
+    for cnd in g["candidates"]:
+        pos = cnd["pos"] / 1e3
+        if cnd["real"]:
+            a0.scatter(*pos, marker="*", s=150, color=C["navy"], zorder=6, edgecolor="white")
+        elif not tri:   # ghosts only shown until triangulation kills them
+            a0.scatter(*pos, marker="X", s=90, color=C["accent2"], zorder=6)
+    a0.set_title("Passive picture: ghosts" + (" resolved" if tri else " present"))
+    a0.set_xlabel("East (km)"); a0.set_ylabel("North (km)"); a0.grid(True, alpha=0.3)
+    a0.set_aspect("equal", adjustable="box")
+    # right: bias split / merge
+    tgt = b["tgt"]; r2 = b["rep2_corr"] if reg else b["rep2_biased"]
+    k = 6.0
+    ellipse(a1, b["rep1"], b["P1"], C["accent"], "sensor 1", k=k)
+    ellipse(a1, r2, b["P2"], C["accent2"], "sensor 2", ls=(0, (4, 2)) if reg else "-", k=k)
+    a1.scatter(*tgt, marker="*", s=160, color=C["navy"], zorder=6, edgecolor="white")
+    a1.set_xlim(tgt[0]-2600, tgt[0]+2600); a1.set_ylim(tgt[1]-2600, tgt[1]+2600)
+    a1.set_aspect("equal", adjustable="box"); a1.grid(True, alpha=0.3)
+    a1.set_title("Radar picture: " + ("re-merged" if reg else "SPLIT"))
+    a1.set_xlabel("East (m)"); a1.legend(fontsize=7, loc="upper left")
+    st.pyplot(fig)
+
+    m1, m2 = st.columns(2)
+    m1.metric("Ghost tracks", "0 (resolved)" if tri else f"{sum(1 for c in g['candidates'] if not c['real'])} present")
+    m2.metric("Bias split", f"re-merged ({b['residual']:.0f} m)" if reg else f"{b['shift']:.0f} m apart",
+              delta="inside gate" if reg else f"gate {b['gate']:.0f} m", delta_color="off")
+    if tri and reg:
+        st.success("Both phantom contacts are gone: the ghost is rejected by the third "
+                   "bearing and the split is re-merged by registration. The picture now "
+                   "shows the real targets only.")
+
+
+# =====================================================================
+# PHASE 3 - coalescence + leaker
+# =====================================================================
+def phase3():
+    p = PHASES[2]; situation(p)
+    d = ac.capstone_phase3()
+    diagnosis_block(3,
+        ["The radar lost lock",
+         "Independent soft association is coalescing close tracks, and a weak contact "
+         "is failing to confirm",
+         "A registration bias", "An identity error"], 1)
+    c1, c2 = st.columns(2)
+    with c1:
+        joint = st.toggle("Tech lead: use joint (JPDA) association", key="p3jpda")
+    with c2:
+        loosen = st.toggle("Tech lead: loosen confirmation (3/4 → 2/4)", key="p3conf")
+    if joint or loosen:
+        acts = []
+        if joint: acts.append("switched to JPDA to hold coalescing tracks")
+        if loosen: acts.append("loosened M/N to hold the low-Pd leaker")
+        record(3, action="; ".join(acts))
+
+    res = d["jpda"] if joint else d["pda"]
+    Xt, Xe = res["truth"], res["est"]
+    fig, (a0, a1) = plt.subplots(1, 2, figsize=(7.8, 3.3), gridspec_kw={"width_ratios":[1.25,1]})
+    for i, col in enumerate([C["mid"], C["accent2"]]):
+        a0.plot(Xt[i, :, 0]/1e3, Xt[i, :, 2], "--", color=col, lw=1.0, alpha=0.6)
+        a0.plot(Xe[i, :, 0]/1e3, Xe[i, :, 2], "-", color=col, lw=1.8)
+    a0.set_title(("JPDA: tracks held apart" if joint else "PDA: tracks coalescing")
+                 + f"  (min sep {res['min_est_sep']:.0f} m)")
+    a0.set_xlabel("East (km)"); a0.set_ylabel("cross-track (m)"); a0.grid(True, alpha=0.3)
+    lk = d["leaker"]
+    vals = [lk["permissive_2of4"] if loosen else lk["strict_3of4"]]
+    a1.bar(["strict 3/4", "loose 2/4"], [lk["strict_3of4"], lk["permissive_2of4"]],
+           color=[C["accent2"], C["accent"]])
+    a1.bar([1 if loosen else 0], [lk["permissive_2of4"] if loosen else lk["strict_3of4"]], color=C["navy"])
+    a1.axhline(0.5, color=C["muted"], ls=":", lw=1)
+    a1.set_ylim(0, 1); a1.set_ylabel("P(confirm leaker)"); a1.set_title(f"Leaker (Pd {lk['pd']:.2f})")
+    st.pyplot(fig)
+    if joint and loosen:
+        st.success(f"JPDA holds the two tracks apart ({d['jpda']['min_est_sep']:.0f} m vs "
+                   f"{d['pda']['min_est_sep']:.0f} m coalesced under PDA), and the looser "
+                   f"rule raises the leaker's confirmation from {lk['strict_3of4']:.2f} to "
+                   f"{lk['permissive_2of4']:.2f}. Trade-off: more false tracks to hold the weak contact.")
+
+
+# =====================================================================
+# PHASE 4 - identity / attribute fusion
+# =====================================================================
+def phase4():
+    p = PHASES[3]; situation(p)
+    d = ac.capstone_phase4()
+    diagnosis_block(4,
+        ["Trust the fused ID; the math combined the evidence",
+         "The two sensors strongly conflict; the combined ID is the class both nearly "
+         "ruled out (Dempster-Shafer trap) – flag it unresolved",
+         "The classifier is broken", "It is a ghost track"], 1)
+    flag = st.toggle("Tech lead: flag the high-conflict contact as UNRESOLVED", key="p4flag")
+    if flag:
+        record(4, action="Flagged the high-conflict ID as unresolved; did not trust the combined mass")
+    h = d["confident_posteriors"]
+    fig, (a0, a1) = plt.subplots(1, 2, figsize=(7.8, 3.2))
+    names = ["A (true)", "B", "C"]; cols = [C["accent"], C["accent2"], C["mid"]]
+    for i in range(3):
+        a0.plot(range(h.shape[0]), h[:, i], "-o", ms=3, color=cols[i], label=names[i],
+                lw=2.2 if i == 0 else 1.5)
+    a0.axhline(0.95, color=C["muted"], ls=":", lw=1); a0.set_ylim(0, 1.05)
+    a0.set_xlabel("declarations"); a0.set_ylabel("class prob"); a0.legend(fontsize=7)
+    a0.set_title("Confident contact (Bayes)"); a0.grid(True, alpha=0.3)
+    comb = d["conflict_combined"]
+    labels = ["A", "B", "C"]; mass = [comb.get(frozenset(x), 0.0) for x in labels]
+    bars = a1.bar(labels, mass, color=[C["muted"], C["muted"], C["accent2"]])
+    a1.set_ylim(0, 1.1); a1.set_title(f"High-conflict contact (K={d['conflict_K']:.2f})")
+    a1.set_ylabel("Dempster combined mass")
+    a1.text(2, mass[2]+0.03, "certifies C\n(both nearly ruled it out)", ha="center", fontsize=7, color=C["accent2"])
+    st.pyplot(fig)
+    if flag:
+        st.success("Correct: the confident contact is safely IDed by Bayes, but the "
+                   "high-conflict contact is flagged unresolved rather than trusting "
+                   "Dempster's rule, which here certifies the class both sensors doubted.")
+
+
+# =====================================================================
+# COMMANDER'S BRIEF - the speaker's summary
+# =====================================================================
+def brief():
+    st.subheader("Commander's Brief")
+    st.caption("The speaker presents this. The tech lead confirms each phase's picture "
+               "is resolved on the workstation before briefing.")
+    done = 0
+    for p in PHASES:
+        rec = st.session_state.log.get(p["id"], {})
+        dx = rec.get("diagnosis"); act = rec.get("action"); note = rec.get("note")
+        ok = rec.get("diagnosis_ok")
+        with st.container(border=True):
+            st.markdown(f"**Phase {p['id']}: {p['title']}**")
+            if dx:
+                mark = "✅" if ok else "⚠️"
+                st.markdown(f"- Diagnosis: {dx}  {mark}")
+            else:
+                st.markdown("- Diagnosis: *not recorded*")
+            st.markdown(f"- Action taken: {act if act else '*none yet*'}")
+            if note:
+                st.markdown(f"- Cell note: {note}")
+            if act:
+                done += 1
+    st.divider()
+    conf = st.select_slider("Overall confidence in the picture",
+                            ["Low", "Moderate", "High"], value="Moderate")
+    st.metric("Phases resolved", f"{done} / {len(PHASES)}")
+    st.markdown(
+        f"**Recommended picture:** real targets held and identified where possible; "
+        f"phantom contacts (ghost, bias-split) resolved; coalescing threat tracks held "
+        f"apart; low-observable leaker retained. **Confidence: {conf}.** "
+        "Speaker: state the highest-priority contact, its ID/confidence, and any "
+        "contact still flagged unresolved.")
+    st.caption("Deliverable: this brief plus the per-phase what-went-wrong log.")
+
+
+# ---- route ----
+if nav.startswith("Phase 1"): phase1()
+elif nav.startswith("Phase 2"): phase2()
+elif nav.startswith("Phase 3"): phase3()
+elif nav.startswith("Phase 4"): phase4()
+else: brief()
